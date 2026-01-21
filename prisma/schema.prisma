@@ -1,0 +1,82 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  fullName  String
+  email     String   @unique
+  password  String
+  birthYear Int
+  role      Role     @default(USER)
+  isBlocked Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  failedAttempts FailedAttempt[]
+  bookmarks      Bookmark[]
+  reactions      Reaction[]
+
+  @@map("users")
+}
+
+model FailedAttempt {
+  id        String   @id @default(cuid())
+  userId    String
+  timestamp DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("failed_attempts")
+}
+
+model Bookmark {
+  id          String   @id @default(cuid())
+  userId      String
+  articleUrl  String   @db.Text
+  articleData Json
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleUrl])
+  @@index([userId])
+  @@index([articleUrl])
+  @@map("bookmarks")
+}
+
+model Reaction {
+  id          String       @id @default(cuid())
+  userId      String
+  articleUrl  String       @db.Text
+  articleData Json
+  type        ReactionType
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleUrl])
+  @@index([userId])
+  @@index([articleUrl])
+  @@index([type])
+  @@map("reactions")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ReactionType {
+  up
+  down
+}
