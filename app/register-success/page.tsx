@@ -1,7 +1,20 @@
+"use client";
 import Link from "next/link";
 import { CheckCircle } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function RegisterSuccessPage() {
+  const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.push("/login");
+    }
+  }, [isLoading, isAuthenticated, router]);
+
   return (
     <div className="min-h-[80vh] flex items-center justify-center">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-8 text-center">
@@ -24,10 +37,10 @@ export default function RegisterSuccessPage() {
         </p>
 
         <Link
-          href="/login"
-          className="inline-flex items-center justify-center px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+          href="/dashboard"
+          className="inline-flex items-center justify-center px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white font-medium rounded-lg transition-colors"
         >
-          Masuk Sekarang
+          Masuk ke Dashboard
         </Link>
       </div>
     </div>

@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { verifyPassword, createToken } from "@/lib/auth";
 import { cookies } from "next/headers";
 
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCK_DURATION = 5 * 60 * 1000; // 5 menit
+const MAX_FAILED_ATTEMPTS = 15;
+const TIME_LIMIT = 5 * 60 * 1000; // 5 menit
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,10 +21,8 @@ export async function POST(request: NextRequest) {
       where: { email: email.toLowerCase() },
       include: {
         failedAttempts: {
-          where: {
-            timestamp: {
-              gte: new Date(Date.now() - LOCK_DURATION),
-            },
+          orderBy: {
+            timestamp: "asc",
           },
         },
       },
@@ -47,16 +45,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isValidPassword = await verifyPassword(password, user.password);
+    const now = Date.now();
+    const failedAttempts = user.failedAttempts;
+    const totalAttempts = failedAttempts.length;
 
-    if (!isValidPassword) {
-      await prisma.failedAttempt.create({
-        data: { userId: user.id },
-      });
+    if (totalAttempts > 0) {
+      const firstAttempt = failedAttempts[0];
+      const timeSinceFirstAttempt =
+        now - new Date(firstAttempt.timestamp).getTime();
 
-      const recentFailedCount = user.failedAttempts.length + 1;
-
-      if (recentFailedCount >= MAX_FAILED_ATTEMPTS) {
+      if (timeSinceFirstAttempt > TIME_LIMIT) {
         await prisma.user.update({
           where: { id: user.id },
           data: { isBlocked: true },
@@ -65,24 +63,62 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           {
             message:
-              "Akun Anda telah diblokir karena terlalu banyak percobaan login yang gagal",
+              "Akun Anda telah diblokir karena tidak berhasil login dalam waktu 5 menit. Hubungi administrator.",
+          },
+          { status: 403 },
+        );
+      }
+    }
+
+    const isValidPassword = await verifyPassword(password, user.password);
+
+    if (!isValidPassword) {
+      await prisma.failedAttempt.create({
+        data: {
+          userId: user.id,
+          timestamp: new Date(),
+        },
+      });
+
+      const newTotalAttempts = totalAttempts + 1;
+
+      if (newTotalAttempts >= MAX_FAILED_ATTEMPTS) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { isBlocked: true },
+        });
+
+        return NextResponse.json(
+          {
+            message:
+              "Akun Anda telah diblokir karena sudah 15 kali salah memasukkan password. Hubungi administrator.",
           },
           { status: 403 },
         );
       }
 
-      const remainingAttempts = MAX_FAILED_ATTEMPTS - recentFailedCount;
+      const remainingAttempts = MAX_FAILED_ATTEMPTS - newTotalAttempts;
+
+      if (remainingAttempts <= 3) {
+        return NextResponse.json(
+          {
+            message: `Email atau password salah. Sisa percobaan: ${remainingAttempts}`,
+            remainingAttempts,
+            totalAttempts: newTotalAttempts,
+          },
+          { status: 401 },
+        );
+      }
+
       return NextResponse.json(
         {
-          message: `Email atau password salah. Sisa percobaan: ${remainingAttempts}`,
+          message: `Email atau password salah`,
+          remainingAttempts,
+          totalAttempts: newTotalAttempts,
         },
         { status: 401 },
       );
     }
-
-    await prisma.failedAttempt.deleteMany({
-      where: { userId: user.id },
-    });
 
     const token = await createToken({ uid: user.id, email: user.email });
 

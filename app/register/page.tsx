@@ -96,7 +96,7 @@ export default function RegisterPage() {
 
       if (res.ok) {
         await refreshUser();
-        router.push("/dashboard");
+        router.push("/register-success");
       } else {
         setError(data.message || "Terjadi kesalahan");
       }
