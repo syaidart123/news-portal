@@ -6,6 +6,7 @@ import { Bookmark, ThumbsUp, ThumbsDown, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { addSourceLike, removeSourceLike } from "@/lib/recomendation";
 
 interface NewsCardProps {
   article: Article;
@@ -32,7 +33,7 @@ export default function NewsCard({
   const [loading, setLoading] = useState(false);
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
+    return new Date(dateString).toLocaleDateString("id-ID", {
       year: "numeric",
       month: "long",
       day: "numeric",
@@ -79,25 +80,40 @@ export default function NewsCard({
 
     setLoading(true);
     try {
-      const res = await fetch("/api/user/reaction", {
+      await fetch("/api/user/reaction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ article, type }),
       });
 
-      const data = await res.json();
-
       const newCounts = { ...counts };
+      const sourceId = article.source?.id;
+      const sourceName = article.source?.id;
 
       if (currentReaction === type) {
         newCounts[type]--;
         setCurrentReaction(null);
+
+        if (type === "up" && sourceId && sourceName) {
+          removeSourceLike(sourceId);
+          console.log(`👎 Removed like from ${sourceName} (${sourceId})`);
+        }
       } else {
         if (currentReaction) {
           newCounts[currentReaction]--;
+
+          if (currentReaction === "up" && sourceId && sourceName) {
+            removeSourceLike(sourceId);
+          }
         }
+
         newCounts[type]++;
         setCurrentReaction(type);
+
+        if (type === "up" && sourceId && sourceName) {
+          addSourceLike(sourceId, sourceName);
+          console.log(`👍 Added like to ${sourceName} (${sourceId})`);
+        }
       }
 
       setCounts(newCounts);
@@ -111,7 +127,7 @@ export default function NewsCard({
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-md transition-all duration-300 ease-out transform hover:scale-[1.02] hover:shadow-lg hover:shadow-rose-500/50">
       <div className="flex flex-col md:flex-row">
-        <div className="md:w-64 md:flex-shrink-0">
+        <div className="md:w-64 md:shrink-0">
           <div className="relative h-48 md:h-full w-full">
             {article.urlToImage ? (
               <Image

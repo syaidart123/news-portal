@@ -6,6 +6,10 @@ import { useAuth } from "@/context/AuthContext";
 import NewsList from "@/components/NewsList";
 import Pagination from "@/components/Pagination";
 import ErrorModal from "@/components/ErrorModal";
+import {
+  getRecommendedSourceIds,
+  getRecommendedSourcesString,
+} from "@/lib/recomendation";
 
 export default function HomePage() {
   const { isAuthenticated } = useAuth();
@@ -22,17 +26,49 @@ export default function HomePage() {
   const [reactionCounts, setReactionCounts] = useState<{
     [url: string]: { up: number; down: number };
   }>({});
+  const [viewMode, setViewMode] = useState<"headlines" | "recommendations">(
+    "headlines",
+  );
+  const [recommendedSourceIds, setRecommendedSourceIds] = useState<string[]>(
+    [],
+  );
+  const [mounted, setMounted] = useState(false);
 
   const pageSize = 10;
   const totalPages = Math.ceil(totalResults / pageSize);
 
-  const fetchNews = useCallback(async () => {
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const updateRecommendationState = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    const sourceIds = getRecommendedSourceIds();
+
+    setRecommendedSourceIds(sourceIds);
+
+    if (sourceIds.length > 0 && viewMode === "headlines") {
+      setViewMode("recommendations");
+    } else if (sourceIds.length === 0 && viewMode === "recommendations") {
+      setViewMode("headlines");
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (mounted) {
+      updateRecommendationState();
+    }
+  }, [mounted, updateRecommendationState]);
+
+  const fetchHeadlines = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
-      const res = await fetch(
-        `/api/news/headlines?page=${currentPage}&pageSize=${pageSize}`,
-      );
+      const url = `/api/news/headlines?page=${currentPage}&pageSize=${pageSize}`;
+
+      const res = await fetch(url);
       const data: NewsAPIResponse = await res.json();
 
       if (data.status === "error") {
@@ -41,18 +77,9 @@ export default function HomePage() {
         return;
       }
 
-      const fetchedArticles = data.articles || [];
-      setArticles(fetchedArticles);
+      setArticles(data.articles || []);
       setTotalResults(data.totalResults || 0);
-
-      if (fetchedArticles.length > 0) {
-        const urls = fetchedArticles.map((a) => a.url);
-        const countsRes = await fetch(
-          `/api/news/reactions?urls=${encodeURIComponent(JSON.stringify(urls))}`,
-        );
-        const countsData = await countsRes.json();
-        setReactionCounts(countsData.reactions || {});
-      }
+      await fetchReactionCounts(data.articles || []);
     } catch (err) {
       setError("Terjadi kesalahan jaringan");
       setShowErrorModal(true);
@@ -60,6 +87,59 @@ export default function HomePage() {
       setLoading(false);
     }
   }, [currentPage]);
+
+  const fetchRecommendations = useCallback(async () => {
+    const sourcesString = getRecommendedSourcesString();
+
+    if (!sourcesString) {
+      console.log("No recommended sources, fetching regular headlines");
+      fetchHeadlines();
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const url = `/api/news/headlines?page=${currentPage}&pageSize=${pageSize}&sources=${encodeURIComponent(sourcesString)}`;
+      const res = await fetch(url);
+      const data: NewsAPIResponse = await res.json();
+
+      if (data.status === "error") {
+        await fetchHeadlines();
+        return;
+      }
+
+      if (!data.articles || data.articles.length === 0) {
+        await fetchHeadlines();
+        return;
+      }
+
+      setArticles(data.articles || []);
+      setTotalResults(data.totalResults || 0);
+      await fetchReactionCounts(data.articles || []);
+    } catch (err) {
+      console.error("Recommendations error:", err);
+      await fetchHeadlines();
+    } finally {
+      setLoading(false);
+    }
+  }, [currentPage, fetchHeadlines]);
+
+  const fetchReactionCounts = async (articleList: Article[]) => {
+    if (articleList.length > 0) {
+      const urls = articleList.map((a) => a.url);
+      try {
+        const countsRes = await fetch(
+          `/api/news/reactions?urls=${encodeURIComponent(JSON.stringify(urls))}`,
+        );
+        const countsData = await countsRes.json();
+        setReactionCounts(countsData.reactions || {});
+      } catch (err) {
+        console.error("Error fetching reaction counts:", err);
+      }
+    }
+  };
 
   const fetchUserData = useCallback(async () => {
     if (!isAuthenticated) {
@@ -93,8 +173,21 @@ export default function HomePage() {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    fetchNews();
-  }, [fetchNews]);
+    if (!mounted) return;
+
+    if (viewMode === "recommendations" && recommendedSourceIds.length > 0) {
+      fetchRecommendations();
+    } else {
+      fetchHeadlines();
+    }
+  }, [
+    mounted,
+    viewMode,
+    recommendedSourceIds.length,
+    currentPage,
+    fetchRecommendations,
+    fetchHeadlines,
+  ]);
 
   useEffect(() => {
     fetchUserData();
@@ -105,25 +198,24 @@ export default function HomePage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     fetchUserData();
+    updateRecommendationState();
+
     if (articles.length > 0) {
-      const urls = articles.map((a) => a.url);
-      fetch(
-        `/api/news/reactions?urls=${encodeURIComponent(JSON.stringify(urls))}`,
-      )
-        .then((res) => res.json())
-        .then((data) => setReactionCounts(data.reactions || {}))
-        .catch(console.error);
+      fetchReactionCounts(articles);
     }
-  };
+  }, [fetchUserData, updateRecommendationState, articles]);
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-          🔥 Top Headlines
-        </h1>
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-3xl">🔥</span>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Top Headlines
+          </h1>
+        </div>
         <p className="text-gray-600 dark:text-gray-400">
           Recomendation news articles just for you.
         </p>
@@ -150,7 +242,11 @@ export default function HomePage() {
         onClose={() => setShowErrorModal(false)}
         onRetry={() => {
           setShowErrorModal(false);
-          fetchNews();
+          if (viewMode === "recommendations") {
+            fetchRecommendations();
+          } else {
+            fetchHeadlines();
+          }
         }}
       />
     </div>
