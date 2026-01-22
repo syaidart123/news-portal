@@ -130,6 +130,10 @@ export async function POST(request: NextRequest) {
       maxAge: 7 * 24 * 60 * 60,
     });
 
+    await prisma.failedAttempt.deleteMany({
+      where: { userId: user.id },
+    });
+
     return NextResponse.json({
       message: "Login berhasil",
       user: {

@@ -13,6 +13,7 @@ interface User {
   fullName: string;
   email: string;
   birthYear: number;
+  role: "USER" | "ADMIN";
 }
 
 interface AuthState {
