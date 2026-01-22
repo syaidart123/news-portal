@@ -136,16 +136,19 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: { isBlocked },
-    });
-
     if (!isBlocked) {
       await prisma.failedAttempt.deleteMany({
         where: { userId },
       });
     }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        isBlocked,
+        failedAttempts: 0 || undefined,
+      },
+    });
 
     return NextResponse.json({
       message: isBlocked
